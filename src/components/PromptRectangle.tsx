@@ -76,13 +76,19 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
           messages: [
             {
               role: 'system',
-              content: `You are a code generator for Fabric.js canvas animations. Return ONLY JavaScript code that follows these rules:
+              content: `You are a code generator for Fabric.js canvas animations and visualizations. You have extensive knowledge about various topics including financial markets, statistics, and data trends. When asked about data visualization:
+1. Use your knowledge to generate reasonable approximations of the data
+2. Create visually appealing representations using Fabric.js
+3. Include appropriate axes, labels, and legends where relevant
+
+For ALL responses, follow these rules:
 1. Code must work with a Fabric.js canvas passed as 'canvas' parameter
 2. No HTML, no markdown, no explanations
-3. Use Fabric.js objects (fabric.Text, fabric.Rect, etc.) for all drawing
+3. Use Fabric.js objects (fabric.Text, fabric.Rect, fabric.Line, fabric.Path, etc.) for all drawing
 4. If you need animation, include a function called 'animate' that uses requestAnimationFrame
 5. If you create classes/objects, they must be instantiated
 6. All code must be inside a single self-executing function
+
 Example template:
 (function(canvas) {
   // Your code here
@@ -93,7 +99,9 @@ Example template:
     requestAnimationFrame(animate);
   }
   animate(); // Start animation if needed
-})(canvas);`
+})(canvas);
+
+For data visualization, you can generate mock data that reasonably represents the requested information. For example, if asked about stock prices, create a realistic trend line based on your knowledge of that stock's general performance.`
             },
             {
               role: 'user',
@@ -101,6 +109,7 @@ Example template:
             }
           ],
           model: 'gpt-4',
+          temperature: 0.7,  // Add some creativity while keeping reasonable outputs
         });
 
         console.log('OpenAI response received');
@@ -113,7 +122,7 @@ Example template:
         }
 
         // Update rectangle content first
-        const updatedRectangle = { ...rectangle, prompt: '', content: code };
+        const updatedRectangle = { ...rectangle, content: code };
         onUpdate(updatedRectangle);
 
         // Then update editing state
