@@ -1,25 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
 import { PromptRectangle } from './components/PromptRectangle';
-
-interface Rectangle {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  prompt: string;
-  content: string;
-}
+import { Rectangle } from './types';
 
 export const App: React.FC = () => {
   const [rectangles, setRectangles] = useState<Rectangle[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
   const canvasRef = useRef<fabric.Canvas | null>(null);
+  const tempRectRef = useRef<fabric.Rect | null>(null);
 
   useEffect(() => {
-    console.log('Initializing canvas...');
     const canvasElement = document.getElementById('canvas') as HTMLCanvasElement;
     if (!canvasElement) {
       console.error('Canvas element not found!');
@@ -32,7 +23,6 @@ export const App: React.FC = () => {
       backgroundColor: '#f0f0f0',
     });
     canvasRef.current = canvas;
-    console.log('Canvas initialized:', canvas);
 
     const handleResize = () => {
       canvas.setWidth(window.innerWidth);
@@ -48,10 +38,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (!canvasRef.current) {
-      console.error('Canvas not initialized');
-      return;
-    }
+    if (!canvasRef.current) return;
     
     const point = canvasRef.current.getPointer(e);
     setIsDrawing(true);
@@ -65,8 +52,10 @@ export const App: React.FC = () => {
     const width = point.x - startPoint.x;
     const height = point.y - startPoint.y;
 
-    canvasRef.current.clear();
-    
+    if (tempRectRef.current) {
+      canvasRef.current.remove(tempRectRef.current);
+    }
+
     const rect = new fabric.Rect({
       left: startPoint.x,
       top: startPoint.y,
@@ -76,6 +65,8 @@ export const App: React.FC = () => {
       stroke: '#000',
       strokeWidth: 2,
     });
+
+    tempRectRef.current = rect;
     canvasRef.current.add(rect);
     canvasRef.current.renderAll();
   };
@@ -84,11 +75,10 @@ export const App: React.FC = () => {
     if (!isDrawing || !startPoint || !canvasRef.current) return;
     
     setIsDrawing(false);
-    const rect = canvasRef.current.getObjects()[0];
+    const rect = tempRectRef.current;
     if (rect) {
       const { left, top, width, height } = rect;
       
-      // Check for overlaps with existing rectangles
       const newRect = {
         x: left!,
         y: top!,
@@ -118,7 +108,8 @@ export const App: React.FC = () => {
         setRectangles(prevRectangles => [...prevRectangles, newRectangle]);
       }
       
-      canvasRef.current.clear();
+      canvasRef.current.remove(rect);
+      tempRectRef.current = null;
       canvasRef.current.renderAll();
     }
   };
