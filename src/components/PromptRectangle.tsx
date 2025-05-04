@@ -14,27 +14,113 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
   const [isEditing, setIsEditing] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<fabric.Canvas | null>(null);
+  const animationRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragHandleRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<HTMLDivElement>(null);
   const [originalPrompt, setOriginalPrompt] = useState(rectangle.prompt);
 
-  useEffect(() => {
-    return () => {
-      if (canvasRef.current) {
-        canvasRef.current.dispose();
-      }
-    };
-  }, []);
+  // Initialize canvas
+  const setupCanvas = () => {
+    if (!contentRef.current) return null;
+    
+    // Clean up existing canvas
+    if (canvasRef.current) {
+      canvasRef.current.dispose();
+      canvasRef.current = null;
+    }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    contentRef.current.innerHTML = '';
+
+    // Create new canvas
+    const canvasElement = document.createElement('canvas');
+    contentRef.current.appendChild(canvasElement);
+    
+    const canvas = new fabric.Canvas(canvasElement, {
+      width: rectangle.width,
+      height: rectangle.height,
+      backgroundColor: 'transparent',
+    });
+    canvasRef.current = canvas;
+    return canvas;
+  };
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isEditing]);
+
+  // Execute visualization
+  useEffect(() => {
+    if (!isEditing && !isLoading && rectangle.content && contentRef.current) {
+      setError(null);
+      const canvas = setupCanvas();
+      if (!canvas) return;
+
+      try {
+        // Create execution context with only essential utilities
+        const context = {
+          canvas,
+          width: canvas.width!,
+          height: canvas.height!,
+          fabric,
+          requestAnimationFrame: (fn: FrameRequestCallback) => {
+            animationRef.current = window.requestAnimationFrame(fn);
+            return animationRef.current;
+          },
+          cancelAnimationFrame: (id: number) => {
+            window.cancelAnimationFrame(id);
+            if (animationRef.current === id) {
+              animationRef.current = null;
+            }
+          }
+        };
+
+        const executeCode = new Function(
+          'canvas', 'width', 'height', 'fabric',
+          'requestAnimationFrame', 'cancelAnimationFrame',
+          `
+          try {
+            ${rectangle.content}
+          } catch (error) {
+            console.error('Visualization error:', error);
+            throw error;
+          }
+        `);
+        
+        executeCode(
+          context.canvas,
+          context.width,
+          context.height,
+          context.fabric,
+          context.requestAnimationFrame,
+          context.cancelAnimationFrame
+        );
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        setError('Failed to execute visualization: ' + errorMsg);
+      }
+    }
+
+    return () => {
+      if (canvasRef.current) {
+        canvasRef.current.dispose();
+        canvasRef.current = null;
+      }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+    };
+  }, [isEditing, isLoading, rectangle.content, rectangle.width, rectangle.height]);
 
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -46,6 +132,7 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
     
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      setError(null);
       setIsLoading(true);
       
       try {
@@ -54,7 +141,7 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
         onUpdate({ ...rectangle, content });
         setIsEditing(false);
       } catch (error) {
-        console.error('Failed to generate visualization:', error);
+        setError(error instanceof Error ? error.message : 'Failed to generate visualization');
       } finally {
         setIsLoading(false);
       }
@@ -93,7 +180,9 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
     const handleResize = (e: MouseEvent) => {
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      onResize(rectangle.id, startWidth + dx, startHeight + dy);
+      const newWidth = Math.max(200, startWidth + dx);
+      const newHeight = Math.max(200, startHeight + dy);
+      onResize(rectangle.id, newWidth, newHeight);
     };
 
     const handleResizeEnd = () => {
@@ -107,11 +196,14 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
 
   const handleEditClick = () => {
     setIsEditing(true);
+    setError(null);
+    setupCanvas();
   };
 
   const handleCancel = () => {
     onUpdate({ ...rectangle, prompt: originalPrompt });
     setIsEditing(false);
+    setError(null);
   };
 
   return (
@@ -124,47 +216,120 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
         top: rectangle.y,
         width: rectangle.width,
         height: rectangle.height,
+        border: '2px solid #000',
+        backgroundColor: '#fff',
         zIndex,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {isEditing ? (
-        <textarea
-          ref={inputRef}
-          value={rectangle.prompt}
-          onChange={(e) => onUpdate({ ...rectangle, prompt: e.target.value })}
-          onKeyDown={handleKeyDown}
-          placeholder="Enter your prompt here..."
-          style={{
-            width: '100%',
-            height: '100%',
-            padding: '8px',
-            border: 'none',
-            resize: 'none',
-            outline: 'none',
-            background: 'transparent',
-          }}
-        />
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <textarea
+            ref={inputRef}
+            value={rectangle.prompt}
+            onChange={(e) => onUpdate({ ...rectangle, prompt: e.target.value })}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter your prompt here..."
+            style={{
+              width: '100%',
+              height: '100%',
+              padding: '8px',
+              border: 'none',
+              resize: 'none',
+              outline: 'none',
+              background: 'transparent',
+            }}
+          />
+          <button
+            onClick={handleCancel}
+            style={{
+              position: 'absolute',
+              top: '4px',
+              right: '4px',
+              padding: '4px',
+              background: '#fff',
+              border: '1px solid #000',
+              borderRadius: '50%',
+              width: '20px',
+              height: '20px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ×
+          </button>
+        </div>
       ) : (
-        <div
-          ref={contentRef}
-          style={{
-            width: '100%',
-            height: '100%',
-            padding: '8px',
-            overflow: 'auto',
-          }}
-        >
-          {isLoading ? (
-            <div>Loading...</div>
-          ) : (
-            <div dangerouslySetInnerHTML={{ __html: rectangle.content }} />
+        <>
+          <div
+            ref={contentRef}
+            style={{
+              width: '100%',
+              height: '100%',
+              padding: '16px',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+            }}
+          />
+          {!isLoading && (
+            <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: '4px' }}>
+              <button
+                onClick={handleEditClick}
+                style={{
+                  padding: '4px 8px',
+                  background: '#fff',
+                  border: '1px solid #000',
+                  cursor: 'pointer',
+                }}
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => onDelete(rectangle.id)}
+                style={{
+                  padding: '4px',
+                  background: '#fff',
+                  border: '1px solid #000',
+                  borderRadius: '50%',
+                  width: '20px',
+                  height: '20px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ×
+              </button>
+            </div>
           )}
+        </>
+      )}
+      
+      {(isLoading || error) && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(255, 255, 255, 0.9)',
+          padding: '10px 20px',
+          borderRadius: '4px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          zIndex: 1000,
+          color: error ? '#dc3545' : '#000',
+        }}>
+          {error || 'Generating visualization...'}
         </div>
       )}
       
-      {isHovered && !isEditing && (
+      {isHovered && !isEditing && !isLoading && (
         <>
           <div
             ref={dragHandleRef}
@@ -194,20 +359,6 @@ export const PromptRectangle: React.FC<PromptRectangleProps> = ({
               cursor: 'se-resize',
             }}
           />
-          <button
-            onClick={handleEditClick}
-            style={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              padding: '4px 8px',
-              background: '#fff',
-              border: '1px solid #000',
-              cursor: 'pointer',
-            }}
-          >
-            Edit
-          </button>
         </>
       )}
     </div>
